@@ -1,0 +1,38 @@
+# Ressources pédagogiques (hors scope git)
+ressources_pedagogique/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+.env
+*.env
+dist/
+build/
+*.egg-info/
+
+# uv
+.uv/
+uv.lock
+
+# dbt
+nyc_taxi_dbt/target/
+nyc_taxi_dbt/dbt_packages/
+nyc_taxi_dbt/logs/
+nyc_taxi_dbt/.user.yml
+
+# Snowflake credentials
+profiles.yml
+*.snowsql
+
+# Streamlit
+.streamlit/secrets.toml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
