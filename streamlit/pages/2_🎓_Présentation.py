@@ -275,6 +275,208 @@ select * from speed_filtered
 """)
 
 
+def slide_dbt_source_ref():
+    st.markdown("""
+<div class="slide-header">
+    <div class="slide-title">🔗 source() et ref() — les deux macros fondamentales</div>
+    <div class="slide-subtitle">Comment dbt sait où lire les données et construit le graphe de dépendances</div>
+</div>
+""", unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("#### `{{ source() }}` — lire une source externe")
+        st.code("""\
+-- models/staging/_sources.yml
+sources:
+  - name: raw
+    database: NYC_TAXI_DB
+    schema: RAW
+    tables:
+      - name: yellow_taxi_trips
+
+-- models/staging/stg_clean_trips.sql
+select * from {{ source('raw', 'yellow_taxi_trips') }}
+-- ↑ dbt résout → NYC_TAXI_DB.RAW.YELLOW_TAXI_TRIPS
+""", language="yaml")
+        st.markdown("""
+**Pourquoi déclarer les sources ?**
+- dbt peut tester leur fraîcheur (`dbt source freshness`)
+- Les sources apparaissent dans le graphe de lineage
+- Changement de schéma = 1 seul fichier à modifier
+        """)
+    with col2:
+        st.markdown("#### `{{ ref() }}` — référencer un modèle dbt")
+        st.code("""\
+-- models/final/daily_summary.sql
+select * from {{ ref('stg_clean_trips') }}
+-- ↑ dbt résout → NYC_TAXI_DB.STAGING.STG_CLEAN_TRIPS
+
+-- models/final/zone_analysis.sql
+select * from {{ ref('stg_clean_trips') }}
+
+-- models/final/hourly_patterns.sql
+select * from {{ ref('stg_clean_trips') }}
+""", language="sql")
+        st.markdown("""
+**Pourquoi `ref()` plutôt qu'un nom en dur ?**
+- dbt construit automatiquement le **DAG de dépendances**
+- Si `stg_clean_trips` change → les 3 tables FINAL sont reconstruites dans le bon ordre
+- Fonctionne dans tous les environnements (dev, prod) sans changer le code
+        """)
+    st.info("**Règle dbt :** `source()` pour lire des données externes (RAW), `ref()` pour lire un autre modèle dbt. Ne jamais écrire un nom de table en dur.")
+
+
+def slide_dbt_materialisations():
+    st.markdown("""
+<div class="slide-header">
+    <div class="slide-title">🧱 Matérialisations dbt</div>
+    <div class="slide-subtitle">Que stocke-t-on dans Snowflake — et pourquoi ?</div>
+</div>
+""", unsafe_allow_html=True)
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.markdown("#### 👁️ view")
+        st.markdown("""
+**Ce que c'est :**
+SQL stocké, données calculées à chaque requête.
+
+**Notre usage :**
+`stg_clean_trips`
+
+**Avantages :**
+- 0 stockage supplémentaire
+- Toujours à jour
+- Pas de coût d'écriture
+
+**Inconvénient :**
+- Recalculé à chaque fois → lent sur 90M lignes si requêté directement
+        """)
+    with col2:
+        st.markdown("#### 📦 table")
+        st.markdown("""
+**Ce que c'est :**
+Données calculées et stockées physiquement.
+
+**Notre usage :**
+`daily_summary`, `zone_analysis`, `hourly_patterns`
+
+**Avantages :**
+- Requêtes rapides (données pré-calculées)
+- Idéal pour les dashboards
+
+**Inconvénient :**
+- Stockage supplémentaire
+- Doit être recalculé (`dbt run`)
+        """)
+    with col3:
+        st.markdown("#### ⚡ incremental")
+        st.markdown("""
+**Ce que c'est :**
+Table qui s'enrichit à chaque run — n'insère que les nouvelles lignes.
+
+**Usage type :**
+Tables de faits volumineuses (logs, events)
+
+**Avantages :**
+- Beaucoup plus rapide que de tout recalculer
+- Économique en compute Snowflake
+
+**Inconvénient :**
+- Logique de déduplication à gérer
+        """)
+    with col4:
+        st.markdown("#### 🔮 ephemeral")
+        st.markdown("""
+**Ce que c'est :**
+Jamais stocké — injecté comme CTE dans les modèles qui en dépendent.
+
+**Usage type :**
+Transformations intermédiaires légères
+
+**Avantages :**
+- Aucun objet créé dans Snowflake
+- Simplifie les dépendances
+
+**Inconvénient :**
+- Pas interrogeable directement
+- N'apparaît pas dans Snowflake
+        """)
+
+    st.divider()
+    st.markdown("#### Notre choix dans `dbt_project.yml`")
+    st.code("""\
+models:
+  nyc_taxi_dbt:
+    staging:
+      +materialized: view    # Pas de copie des données — RAW suffit
+      +schema: STAGING
+    final:
+      +materialized: table   # Agrégations pré-calculées pour le dashboard
+      +schema: FINAL
+""", language="yaml")
+    st.success("**Règle simple :** `view` tant que les données source existent déjà. `table` quand on agrège / quand la performance compte.")
+
+
+def slide_dbt_lineage():
+    st.markdown("""
+<div class="slide-header">
+    <div class="slide-title">🗺️ Lineage — le graphe de dépendances dbt</div>
+    <div class="slide-subtitle">Comment dbt détermine l'ordre d'exécution automatiquement</div>
+</div>
+""", unsafe_allow_html=True)
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        st.markdown("#### Notre DAG")
+        st.code("""\
+[SOURCE]
+NYC_TAXI_DB.RAW.yellow_taxi_trips
+            │
+            │  {{ source('raw', 'yellow_taxi_trips') }}
+            ▼
+[STAGING — VIEW]
+stg_clean_trips
+     ├──────────────────────────────────┐
+     │  {{ ref('stg_clean_trips') }}    │  {{ ref('stg_clean_trips') }}
+     ▼                                  ▼
+[FINAL — TABLE]              [FINAL — TABLE]
+daily_summary                zone_analysis
+                                  │
+                     {{ ref('stg_clean_trips') }}
+                                  ▼
+                         [FINAL — TABLE]
+                         hourly_patterns
+""")
+        st.markdown("""
+dbt lit les `{{ ref() }}` dans chaque fichier SQL et construit ce graphe automatiquement.
+Il exécute les modèles **dans l'ordre topologique** : source → staging → final.
+        """)
+    with col2:
+        st.markdown("#### Commandes utiles")
+        st.code("""\
+# Tout reconstruire
+dbt run
+
+# Reconstruire un modèle + ses dépendances amont
+dbt run --select +daily_summary
+# ↑ reconstruit stg_clean_trips ET daily_summary
+
+# Reconstruire un modèle + tout l'aval
+dbt run --select stg_clean_trips+
+# ↑ reconstruit les 3 tables FINAL
+
+# Tester uniquement un modèle
+dbt test --select stg_clean_trips
+""", language="bash")
+        st.markdown("#### Pourquoi c'est puissant")
+        st.markdown("""
+Si on modifie le filtre dans `stg_clean_trips` :
+1. dbt sait que `daily_summary`, `zone_analysis` et `hourly_patterns` en dépendent
+2. Il les reconstruit **automatiquement dans le bon ordre**
+3. Aucun script d'orchestration manuel à écrire
+        """)
+
+
 def slide_tests():
     st.markdown("""
 <div class="slide-header">
@@ -399,8 +601,11 @@ SLIDES = [
     ("🏗️ Architecture",        slide_architecture),
     ("🛠️ Stack technique",     slide_stack),
     ("📥 Ingestion",           slide_ingestion),
-    ("🔧 Transformations dbt", slide_dbt),
-    ("✅ Tests qualité",       slide_tests),
+    ("🔧 Transformations dbt",        slide_dbt),
+    ("🔗 source() et ref()",          slide_dbt_source_ref),
+    ("🧱 Matérialisations",           slide_dbt_materialisations),
+    ("🗺️ Lineage & DAG",              slide_dbt_lineage),
+    ("✅ Tests qualité",              slide_tests),
     ("⚙️ CI/CD",               slide_cicd),
     ("📦 Livrables",           slide_livrables),
 ]
