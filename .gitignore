@@ -20,6 +20,7 @@ nyc_taxi_dbt/target/
 nyc_taxi_dbt/dbt_packages/
 nyc_taxi_dbt/logs/
 nyc_taxi_dbt/.user.yml
+logs/
 
 # Snowflake credentials
 profiles.yml
