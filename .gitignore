@@ -23,7 +23,7 @@ nyc_taxi_dbt/.user.yml
 logs/
 
 # Snowflake credentials
-profiles.yml
+/profiles.yml
 *.snowsql
 .secrets/
 
