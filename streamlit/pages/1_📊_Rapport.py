@@ -23,10 +23,25 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("""
+with st.spinner("Chargement des métriques qualité..."):
+    qstats = query("""
+        SELECT
+            (SELECT COUNT(*) FROM NYC_TAXI_DB.RAW.YELLOW_TAXI_TRIPS)     AS raw_count,
+            (SELECT COUNT(*) FROM NYC_TAXI_DB.STAGING.STG_CLEAN_TRIPS)   AS staging_count,
+            (SELECT MIN(trip_date) FROM NYC_TAXI_DB.FINAL.DAILY_SUMMARY) AS date_min,
+            (SELECT MAX(trip_date) FROM NYC_TAXI_DB.FINAL.DAILY_SUMMARY) AS date_max
+    """).iloc[0]
+
+raw_count     = int(qstats["raw_count"])
+staging_count = int(qstats["staging_count"])
+rejected      = raw_count - staging_count
+reject_pct    = rejected / raw_count * 100
+periode       = f"{qstats['date_min'].strftime('%b %Y')} – {qstats['date_max'].strftime('%b %Y')}"
+
+st.markdown(f"""
 <div class="section-header">
-    <div class="section-title">📊 Rapport d'analyse — NYC Yellow Taxi 2025</div>
-    <div class="section-sub">Jan – Jun 2025 · Données : NYC Taxi & Limousine Commission</div>
+    <div class="section-title">📊 Rapport d'analyse — NYC Yellow Taxi</div>
+    <div class="section-sub">{periode} · Données : NYC Taxi & Limousine Commission</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -34,11 +49,11 @@ st.markdown("""
 st.markdown("## 1. Qualité des données")
 
 col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("Lignes RAW",      "24 083 384")
-col2.metric("Lignes STAGING",  "20 445 700")
-col3.metric("Lignes filtrées", "3 637 684",  delta="-15.1 %", delta_color="inverse")
-col4.metric("Outliers vitesse","1 148",       delta="≤ 0.006 %", delta_color="inverse")
-col5.metric("Tests dbt",       "20 / 20",    delta="✓ tous passés")
+col1.metric("Lignes RAW",      f"{raw_count:,}")
+col2.metric("Lignes STAGING",  f"{staging_count:,}")
+col3.metric("Lignes filtrées", f"{rejected:,}", delta=f"-{reject_pct:.1f} %", delta_color="inverse")
+col4.metric("Outliers vitesse","1 148",          delta="≤ 0.006 %",           delta_color="inverse")
+col5.metric("Tests dbt",       "20 / 20",        delta="✓ tous passés")
 
 with st.expander("Détail des règles de filtrage"):
     st.markdown("""

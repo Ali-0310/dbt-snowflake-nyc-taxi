@@ -1,4 +1,10 @@
+import sys
+from pathlib import Path
+
 import streamlit as st
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from utils.snowflake import query
 
 st.set_page_config(
     page_title="NYC Taxi — Pipeline",
@@ -20,18 +26,33 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("""
+with st.spinner("Chargement des métriques..."):
+    stats = query("""
+        SELECT
+            (SELECT COUNT(*) FROM NYC_TAXI_DB.RAW.YELLOW_TAXI_TRIPS)        AS raw_count,
+            (SELECT COUNT(*) FROM NYC_TAXI_DB.STAGING.STG_CLEAN_TRIPS)      AS staging_count,
+            (SELECT MIN(trip_date) FROM NYC_TAXI_DB.FINAL.DAILY_SUMMARY)    AS date_min,
+            (SELECT MAX(trip_date) FROM NYC_TAXI_DB.FINAL.DAILY_SUMMARY)    AS date_max
+    """).iloc[0]
+
+raw_count     = int(stats["raw_count"])
+staging_count = int(stats["staging_count"])
+rejected      = raw_count - staging_count
+reject_pct    = rejected / raw_count * 100
+periode       = f"{stats['date_min'].strftime('%b %Y')} – {stats['date_max'].strftime('%b %Y')}"
+
+st.markdown(f"""
 <div class="home-card">
     <div class="home-title">🚕 NYC Taxi Data Warehouse</div>
-    <div class="home-sub">Pipeline complet · Snowflake · dbt-fusion · GitHub Actions · 2025</div>
+    <div class="home-sub">Pipeline complet · Snowflake · dbt-fusion · GitHub Actions · {periode}</div>
 </div>
 """, unsafe_allow_html=True)
 
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Lignes ingérées (RAW)", "24 083 384")
-col2.metric("Lignes nettoyées (STAGING)", "20 445 700")
-col3.metric("Taux de rejet", "15.1 %")
-col4.metric("Période", "Jan – Jun 2025")
+col1.metric("Lignes ingérées (RAW)",      f"{raw_count:,}")
+col2.metric("Lignes nettoyées (STAGING)", f"{staging_count:,}")
+col3.metric("Taux de rejet",              f"{reject_pct:.1f} %")
+col4.metric("Période",                    periode)
 
 st.divider()
 

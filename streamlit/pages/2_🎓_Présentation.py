@@ -1,4 +1,11 @@
+import sys
+from pathlib import Path
+
+import pandas as pd
 import streamlit as st
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from utils.snowflake import query
 
 st.set_page_config(page_title="Présentation — NYC Taxi Pipeline", page_icon="🎓", layout="wide")
 
@@ -17,22 +24,51 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ── Stats chargées une fois ───────────────────────────────────────────────
+with st.spinner("Chargement des statistiques..."):
+    _s = query("""
+        SELECT
+            (SELECT COUNT(*) FROM NYC_TAXI_DB.RAW.YELLOW_TAXI_TRIPS)        AS raw_count,
+            (SELECT COUNT(*) FROM NYC_TAXI_DB.STAGING.STG_CLEAN_TRIPS)      AS staging_count,
+            (SELECT MIN(trip_date) FROM NYC_TAXI_DB.FINAL.DAILY_SUMMARY)    AS date_min,
+            (SELECT MAX(trip_date) FROM NYC_TAXI_DB.FINAL.DAILY_SUMMARY)    AS date_max
+    """).iloc[0]
+
+    _monthly = query("""
+        SELECT
+            DATE_TRUNC('month', trip_date)  AS mois,
+            SUM(total_trips)                AS nb_lignes
+        FROM NYC_TAXI_DB.FINAL.DAILY_SUMMARY
+        GROUP BY 1
+        ORDER BY 1
+    """)
+
+RAW_COUNT     = int(_s["raw_count"])
+STAGING_COUNT = int(_s["staging_count"])
+REJECTED      = RAW_COUNT - STAGING_COUNT
+REJECT_PCT    = REJECTED / RAW_COUNT * 100
+DATE_MIN      = _s["date_min"]
+DATE_MAX      = _s["date_max"]
+PERIODE       = f"{DATE_MIN.strftime('%b %Y')} – {DATE_MAX.strftime('%b %Y')}"
+NB_MOIS       = len(_monthly)
+_monthly["mois_label"] = pd.to_datetime(_monthly["mois"]).dt.strftime("%Y-%m")
+
 
 # ── SLIDES ────────────────────────────────────────────────────────────────
 
 def slide_titre():
-    st.markdown("""
+    st.markdown(f"""
 <div class="slide-header">
     <div class="slide-title">🚕 NYC Taxi Data Warehouse</div>
-    <div class="slide-subtitle">Simplon — Projet Data Engineering · 2025 · Snowflake · dbt · GitHub Actions</div>
+    <div class="slide-subtitle">Simplon — Projet Data Engineering · {PERIODE} · Snowflake · dbt · GitHub Actions</div>
 </div>
 """, unsafe_allow_html=True)
     st.markdown("Pipeline de données complet sur les **NYC Yellow Taxi Trip Data** — ingestion, nettoyage, transformation, tests qualité et orchestration CI/CD.")
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Lignes chargées",  "24 083 384")
-    col2.metric("Lignes nettoyées", "20 445 700")
-    col3.metric("Mois de données",  "6 (Jan–Jun 2025)")
-    col4.metric("Tests qualité",    "20 / 20 ✓")
+    col1.metric("Lignes chargées (RAW)",  f"{RAW_COUNT:,}")
+    col2.metric("Lignes nettoyées",       f"{STAGING_COUNT:,}")
+    col3.metric("Période couverte",       PERIODE)
+    col4.metric("Tests qualité",          "20 / 20 ✓")
 
 
 def slide_contexte():
@@ -44,11 +80,11 @@ def slide_contexte():
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("#### Dataset")
-        st.markdown("""
+        st.markdown(f"""
 - **Source :** NYC Taxi & Limousine Commission
 - **Format :** fichiers Parquet mensuels
-- **Volume :** ~4M trajets / mois
-- **Période :** Jan – Jun 2025
+- **Volume :** ~{RAW_COUNT // NB_MOIS / 1e6:.1f}M trajets / mois
+- **Période :** {PERIODE} ({NB_MOIS} mois)
 - **Colonnes :** 20 (tarifs, distances, zones, timestamps...)
 - **Nouveauté 2025 :** colonne `cbd_congestion_fee` (taxe MTA)
         """)
@@ -72,12 +108,13 @@ def slide_architecture():
 """, unsafe_allow_html=True)
     col1, col2, col3, col4, col5 = st.columns([2, 0.4, 2, 0.4, 2])
     with col1:
-        st.markdown("""**📥 Ingestion (Python)**
+        st.markdown(f"""**📥 Ingestion (Python)**
 ```
 NYC TLC CloudFront
 yellow_tripdata_
-2025-01.parquet
-2025-02.parquet
+{DATE_MIN.strftime('%Y-%m')}.parquet
+...
+{DATE_MAX.strftime('%Y-%m')}.parquet
         ↓
  ParquetDownloader
         ↓
@@ -86,12 +123,12 @@ yellow_tripdata_
    COPY INTO
         ↓
 RAW.yellow_taxi_trips
-  (24M lignes)
+  ({RAW_COUNT / 1e6:.0f}M lignes)
 ```""")
     with col2:
         st.markdown("<div class='arrow'>→</div>", unsafe_allow_html=True)
     with col3:
-        st.markdown("""**⚙️ Transformation (dbt)**
+        st.markdown(f"""**⚙️ Transformation (dbt)**
 ```
 RAW.yellow_taxi_trips
         ↓
@@ -101,7 +138,7 @@ RAW.yellow_taxi_trips
   - BIGINT → TIMESTAMP
   - Colonnes enrichies
         ↓
-STAGING (20.4M lignes)
+STAGING ({STAGING_COUNT / 1e6:.1f}M lignes)
 ```""")
     with col4:
         st.markdown("<div class='arrow'>→</div>", unsafe_allow_html=True)
@@ -139,7 +176,7 @@ def slide_stack():
         st.markdown("- Python 3.10\n- `uv` gestionnaire packages\n- Design OOP/SOLID\n- `snowflake-connector-python`\n- `requests`, `cryptography`")
     with col4:
         st.markdown("#### ⚙️ GitHub Actions")
-        st.markdown("- Trigger : push sur `main`\n- `dbt run` + `dbt test`\n- Auth via GitHub Secrets\n- Durée : ~50s\n- Node.js 24 (v6)")
+        st.markdown("- CI : push `main` → dbt run+test\n- Cron : 1er du mois → pipeline complet\n- Auth via GitHub Secrets\n- Node.js 24 (v6)")
 
 
 def slide_ingestion():
@@ -172,15 +209,12 @@ class IngestionPipeline:        # SRP : orchestration
     ): ...
 """, language="python")
     with col2:
-        st.markdown("#### Résultats")
-        import pandas as pd
-        data = {
-            "Mois": ["2025-01","2025-02","2025-03","2025-04","2025-05","2025-06"],
-            "Lignes": ["3 475 226","3 577 543","4 145 257","3 970 553","4 591 845","4 322 960"],
-            "Taille": ["59 MB","60 MB","70 MB","67 MB","78 MB","74 MB"],
-        }
-        st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
-        st.metric("Total", "24 083 384 lignes en ~4 minutes")
+        st.markdown("#### Résultats par mois")
+        df_display = _monthly[["mois_label", "nb_lignes"]].copy()
+        df_display.columns = ["Mois", "Lignes"]
+        df_display["Lignes"] = df_display["Lignes"].apply(lambda x: f"{int(x):,}")
+        st.dataframe(df_display, use_container_width=True, hide_index=True, height=300)
+        st.metric("Total RAW", f"{RAW_COUNT:,} lignes")
         st.markdown("""
 **Point technique :** les timestamps Parquet (`timestamp[us]`) sont stockés en `BIGINT` en RAW
 (Snowflake interprète les µsecondes comme des secondes → année 55 000 000 sinon).
@@ -211,6 +245,7 @@ filtered as (
     -- trip_distance entre 0.1 et 200 miles
     -- passenger_count entre 1 et 6
     -- durée entre 1 et 180 min
+    -- pickup_datetime >= 2024-01-01
 ),
 enriched as (
     -- miles → km  (× 1.60934)
@@ -220,30 +255,23 @@ enriched as (
     -- tip_rate_pct
 ),
 speed_filtered as (
-    -- avg_speed_kmh <= 150 (1 148 outliers)
+    -- avg_speed_kmh <= 150
 )
 select * from speed_filtered
 """, language="sql")
     with col2:
+        st.markdown("#### Résultat du filtrage")
+        col_a, col_b = st.columns(2)
+        col_a.metric("Avant filtrage", f"{RAW_COUNT:,}")
+        col_b.metric("Après filtrage", f"{STAGING_COUNT:,}")
+        st.metric("Lignes exclues", f"{REJECTED:,}", delta=f"-{REJECT_PCT:.1f} %", delta_color="inverse")
         st.markdown("#### Tables FINAL")
         st.markdown("""
-| Modèle | Clé | Nb colonnes |
+| Modèle | Clé | Métriques |
 |---|---|---|
-| `daily_summary` | `trip_date` | 11 |
-| `zone_analysis` | `pickup_location_id` | 10 |
-| `hourly_patterns` | `hour + dow + period` | 12 |
-""")
-        st.markdown("#### Macro `generate_schema_name`")
-        st.markdown("""
-Par défaut dbt crée `STAGING_STAGING` au lieu de `STAGING`.
-Override qui force le nom exact du schéma :
-```sql
-{%- if custom_schema_name is none -%}
-    {{ target.schema }}
-{%- else -%}
-    {{ custom_schema_name | trim | upper }}
-{%- endif -%}
-```
+| `daily_summary` | `trip_date` | trips, km, revenue, speed |
+| `zone_analysis` | `pickup_location_id` | trips, fare, tip_rate |
+| `hourly_patterns` | `hour + dow + period` | trips, speed, fare |
 """)
 
 
@@ -274,19 +302,17 @@ def slide_tests():
         st.markdown("#### Test singulier")
         st.code("""\
 -- assert_no_aberrant_speed.sql
--- Retourne les lignes qui violent la règle
--- 0 ligne = succès
-
 select pickup_datetime,
        trip_distance_km,
        avg_speed_kmh
 from {{ ref('stg_clean_trips') }}
 where avg_speed_kmh > 150
+-- 0 ligne = succès ✓
 """, language="sql")
-        st.success("**Résultat :** 1 148 outliers détectés → filtre ajouté en staging → 0 ligne au re-test")
-        st.markdown("""
-> Le test a révélé une anomalie non capturée par les filtres initiaux.
-> C'est la valeur ajoutée des tests singuliers : détecter les cas limites métier.
+        st.success("**Résultat :** outliers détectés → filtre ajouté → 0 ligne au re-test")
+        st.markdown(f"""
+> Taux de filtrage total : **{REJECT_PCT:.1f} %** ({REJECTED:,} lignes)
+> dont outliers vitesse : **≤ 0.01 %** du total RAW.
 """)
 
 
@@ -298,42 +324,37 @@ def slide_cicd():
 """, unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown("#### Workflow `.github/workflows/dbt_ci.yml`")
-        st.code("""\
-on:
-  push:     { branches: [main] }
-  pull_request: { branches: [main] }
+        st.markdown("#### Deux workflows")
+        st.markdown("""
+**`dbt_ci.yml` — déclenché sur push**
+- Vérifie que les modèles tournent toujours
+- `dbt run` + `dbt test` (20 tests)
 
-jobs:
-  dbt-run-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-      - run: pip install dbt-snowflake
-      - name: Write RSA key
-        run: echo "${{ secrets.SNOWFLAKE_PRIVATE_KEY }}"
-             > .secrets/snowflake_key.p8
-      - run: dbt run  --project-dir nyc_taxi_dbt
-                      --profiles-dir nyc_taxi_dbt
-      - run: dbt test --project-dir nyc_taxi_dbt
-                      --profiles-dir nyc_taxi_dbt
+**`pipeline_monthly.yml` — cron + manuel**
+- Le 1er de chaque mois à 6h UTC
+- Ingestion du mois précédent (Python)
+- `dbt run` + `dbt test` en cascade
+- `workflow_dispatch` pour lancer manuellement
+""")
+        st.code("""\
+schedule:
+  - cron: "0 6 1 * *"
+workflow_dispatch:
+  inputs:
+    start_year, start_month
+    end_year,   end_month
 """, language="yaml")
     with col2:
-        st.markdown("#### Résultat")
-        st.success("✓ dbt-run-test in 50s\n\n✓ 4 models success\n\n✓ 20 tests success")
+        st.success("✓ dbt-run-test in ~50s\n\n✓ 4 models success\n\n✓ 20 tests success")
         st.markdown("#### Secrets GitHub (6)")
         st.markdown("""
 ```
-SNOWFLAKE_ACCOUNT
-SNOWFLAKE_USER
-SNOWFLAKE_ROLE
-SNOWFLAKE_DATABASE
-SNOWFLAKE_WAREHOUSE
-SNOWFLAKE_PRIVATE_KEY
+SNOWFLAKE_ACCOUNT · SNOWFLAKE_USER
+SNOWFLAKE_ROLE    · SNOWFLAKE_DATABASE
+SNOWFLAKE_WAREHOUSE · SNOWFLAKE_PRIVATE_KEY
 ```
+**Auth :** clé RSA écrite dans un fichier temporaire — aucun mot de passe en clair.
 """)
-        st.markdown("**Auth :** clé RSA écrite dans un fichier temporaire à chaque run — aucun mot de passe en clair.")
 
 
 def slide_livrables():
@@ -347,7 +368,7 @@ def slide_livrables():
         st.markdown("""**Fichiers produits :**
 - `ingestion/` — pipeline Python OOP/SOLID
 - `nyc_taxi_dbt/` — projet dbt (4 modèles, 20 tests)
-- `.github/workflows/dbt_ci.yml` — CI/CD automatisé
+- `.github/workflows/` — CI/CD (2 workflows)
 - `streamlit/` — rapport + présentation
 - `docs/` — documentation markdown par étape
         """)
@@ -356,22 +377,19 @@ def slide_livrables():
 ```
 dbt-snowflake-nyc-taxi/
 ├── ingestion/
-│   ├── config.py
-│   ├── downloader.py
-│   ├── loader.py
-│   ├── pipeline.py
+│   ├── config.py · downloader.py
+│   ├── loader.py · pipeline.py
 │   └── protocols.py
 ├── nyc_taxi_dbt/
-│   ├── models/staging/
-│   ├── models/final/
-│   ├── macros/
-│   └── tests/
+│   ├── models/staging/ · models/final/
+│   ├── macros/ · tests/
+│   └── profiles.yml
 ├── streamlit/
 ├── docs/
 └── .github/workflows/
 ```
         """)
-    st.success("Pipeline opérationnelle ✅ | 24M lignes ingérées ✅ | 20 tests qualité ✅ | CI/CD ✅")
+    st.success(f"Pipeline opérationnelle ✅ | {RAW_COUNT:,} lignes ingérées ✅ | 20 tests qualité ✅ | CI/CD ✅")
 
 
 # ── REGISTRE ──────────────────────────────────────────────────────────────
@@ -388,11 +406,9 @@ SLIDES = [
 ]
 N = len(SLIDES)
 
-# ── SESSION STATE ─────────────────────────────────────────────────────────
 if "slide_idx" not in st.session_state:
     st.session_state.slide_idx = 0
 
-# ── SIDEBAR ───────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### 🎓 Présentation")
     mode = st.radio("Mode d'affichage", ["🎞️ Diaporama", "📄 Vue complète"], index=0)
@@ -405,7 +421,6 @@ with st.sidebar:
                 st.session_state.slide_idx = i
                 st.rerun()
 
-# ── RENDU ─────────────────────────────────────────────────────────────────
 if mode == "🎞️ Diaporama":
     idx = st.session_state.slide_idx
 
