@@ -1,0 +1,93 @@
+version: 2
+
+models:
+  - name: stg_clean_trips
+    description: "Trajets nettoyés et enrichis depuis RAW.yellow_taxi_trips. Distances en km, vitesses en km/h."
+
+    columns:
+      - name: vendor_id
+        description: "Fournisseur TPEP"
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 2, 6, 7]
+
+      - name: pickup_datetime
+        description: "Date/heure de prise en charge"
+        data_tests:
+          - not_null
+
+      - name: dropoff_datetime
+        description: "Date/heure de dépose"
+        data_tests:
+          - not_null
+
+      - name: passenger_count
+        description: "Nombre de passagers (1–6)"
+        data_tests:
+          - not_null
+
+      - name: trip_distance_km
+        description: "Distance du trajet en kilomètres"
+        data_tests:
+          - not_null
+
+      - name: pickup_location_id
+        description: "Zone TLC de prise en charge"
+        data_tests:
+          - not_null
+
+      - name: dropoff_location_id
+        description: "Zone TLC de dépose"
+        data_tests:
+          - not_null
+
+      - name: fare_amount
+        description: "Montant du tarif (> 0 après filtrage)"
+        data_tests:
+          - not_null
+
+      - name: total_amount
+        description: "Montant total facturé"
+        data_tests:
+          - not_null
+
+      - name: payment_type
+        description: "Mode de paiement"
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [0, 1, 2, 3, 4, 5, 6]
+
+      - name: time_of_day
+        description: "Période de la journée"
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['morning', 'afternoon', 'evening', 'night']
+
+      - name: distance_category
+        description: "Catégorie de distance"
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['short', 'medium', 'long', 'very_long']
+
+      - name: trip_duration_min
+        description: "Durée du trajet en minutes (1–180)"
+        data_tests:
+          - not_null
+
+      - name: avg_speed_kmh
+        description: "Vitesse moyenne en km/h"
+        data_tests:
+          - not_null
+
+      - name: tip_rate_pct
+        description: "Taux de pourboire en %"
+        data_tests:
+          - not_null

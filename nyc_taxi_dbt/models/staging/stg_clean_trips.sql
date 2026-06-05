@@ -95,6 +95,12 @@ enriched as (
             tip_amount / NULLIF(fare_amount, 0) * 100, 2
         )                                                           as tip_rate_pct
     from filtered
+),
+
+speed_filtered as (
+    select *
+    from enriched
+    where avg_speed_kmh <= 150
 )
 
-select * from enriched
+select * from speed_filtered
