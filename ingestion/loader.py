@@ -68,7 +68,23 @@ class SnowflakeStageLoader:
             cur.execute(_CREATE_STAGE_SQL)
         logger.info(f"Table {_SCHEMA}.{_TABLE} and stage {_STAGE} ready")
 
-    def load(self, file_path: Path) -> int:
+    def _is_already_loaded(self, year: int, month: int) -> bool:
+        sql = f"""
+            SELECT COUNT(*) FROM {_SCHEMA}.{_TABLE}
+            WHERE TO_TIMESTAMP_NTZ(tpep_pickup_datetime / 1000000)
+                  BETWEEN '{year}-{month:02d}-01'
+                  AND LAST_DAY('{year}-{month:02d}-01'::DATE)
+            LIMIT 1
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(sql)
+            return cur.fetchone()[0] > 0
+
+    def load(self, file_path: Path, year: int = 0, month: int = 0) -> int:
+        if year and month and self._is_already_loaded(year, month):
+            logger.warning(f"{year}-{month:02d} déjà chargé en RAW — skipping")
+            return 0
+
         stage_file = f"@{_SCHEMA}.{_STAGE}/{file_path.name}"
 
         with self._conn.cursor() as cur:
@@ -89,6 +105,13 @@ class SnowflakeStageLoader:
 
             result = cur.fetchone()
             rows_loaded = result[3] if result else 0
+
+            cur.execute(f"""
+                UPDATE {_SCHEMA}.{_TABLE}
+                SET _loaded_at = CURRENT_TIMESTAMP
+                WHERE _loaded_at IS NULL
+            """)
+            logger.info(f"_loaded_at mis à jour pour {rows_loaded:,} lignes")
 
             cur.execute(f"REMOVE {stage_file}")
 

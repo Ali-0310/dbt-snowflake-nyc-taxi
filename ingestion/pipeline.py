@@ -38,7 +38,7 @@ class IngestionPipeline:
             logger.info(f"--- Processing {key} ---")
             try:
                 file_path = self._downloader.download(year, month)
-                rows = self._loader.load(file_path)
+                rows = self._loader.load(file_path, year=year, month=month)
                 results[key] = rows
             except Exception as e:
                 logger.error(f"Failed {key}: {e}")

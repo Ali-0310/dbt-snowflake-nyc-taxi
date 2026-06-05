@@ -1,3 +1,4 @@
+import argparse
 import logging
 import tempfile
 from pathlib import Path
@@ -14,13 +15,22 @@ logging.basicConfig(
 )
 
 
+def _parse_args() -> MonthRange:
+    parser = argparse.ArgumentParser(description="Ingestion NYC Taxi Parquet → Snowflake RAW")
+    parser.add_argument("--start-year",  type=int, required=True, help="Année de début (ex: 2024)")
+    parser.add_argument("--start-month", type=int, required=True, help="Mois de début (ex: 1)")
+    parser.add_argument("--end-year",    type=int, required=True, help="Année de fin (ex: 2025)")
+    parser.add_argument("--end-month",   type=int, required=True, help="Mois de fin (ex: 6)")
+    args = parser.parse_args()
+    return MonthRange(args.start_year, args.start_month, args.end_year, args.end_month)
+
+
 def main() -> None:
+    period = _parse_args()
     config = SnowflakeConfig.from_env()
-    period = MonthRange(start_year=2025, start_month=1, end_year=2025, end_month=6)
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         downloader = ParquetDownloader(Path(tmp_dir))
-
         with SnowflakeStageLoader(config) as loader:
             pipeline = IngestionPipeline(downloader, loader)
             results = pipeline.run(period)

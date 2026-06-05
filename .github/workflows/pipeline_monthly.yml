@@ -1,0 +1,103 @@
+name: Pipeline mensuel NYC Taxi
+
+on:
+  schedule:
+    - cron: "0 6 1 * *"   # 1er de chaque mois à 6h UTC
+  workflow_dispatch:
+    inputs:
+      start_year:
+        description: "Année de début"
+        required: true
+        default: "2025"
+      start_month:
+        description: "Mois de début"
+        required: true
+        default: "1"
+      end_year:
+        description: "Année de fin"
+        required: true
+        default: "2025"
+      end_month:
+        description: "Mois de fin"
+        required: true
+        default: "12"
+
+jobs:
+  ingest-and-transform:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        run: uv sync --no-dev
+
+      - name: Write Snowflake private key
+        run: |
+          mkdir -p .secrets
+          echo "${{ secrets.SNOWFLAKE_PRIVATE_KEY }}" > .secrets/snowflake_key.p8
+
+      - name: Compute period (cron — mois précédent)
+        if: github.event_name == 'schedule'
+        run: |
+          YEAR=$(date -d "$(date +%Y-%m-01) -1 month" +%Y)
+          MONTH=$(date -d "$(date +%Y-%m-01) -1 month" +%-m)
+          echo "START_YEAR=$YEAR"  >> $GITHUB_ENV
+          echo "START_MONTH=$MONTH" >> $GITHUB_ENV
+          echo "END_YEAR=$YEAR"    >> $GITHUB_ENV
+          echo "END_MONTH=$MONTH"  >> $GITHUB_ENV
+
+      - name: Set period (workflow_dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "START_YEAR=${{ github.event.inputs.start_year }}"   >> $GITHUB_ENV
+          echo "START_MONTH=${{ github.event.inputs.start_month }}" >> $GITHUB_ENV
+          echo "END_YEAR=${{ github.event.inputs.end_year }}"       >> $GITHUB_ENV
+          echo "END_MONTH=${{ github.event.inputs.end_month }}"     >> $GITHUB_ENV
+
+      - name: Ingestion Parquet → RAW
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PRIVATE_KEY_PATH: .secrets/snowflake_key.p8
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+        run: |
+          uv run python -m ingestion.main \
+            --start-year  $START_YEAR  \
+            --start-month $START_MONTH \
+            --end-year    $END_YEAR    \
+            --end-month   $END_MONTH
+
+      - name: Install dbt-snowflake
+        run: pip install dbt-snowflake
+
+      - name: dbt run
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PRIVATE_KEY_PATH: .secrets/snowflake_key.p8
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+        run: dbt run --project-dir nyc_taxi_dbt --profiles-dir nyc_taxi_dbt
+
+      - name: dbt test
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PRIVATE_KEY_PATH: .secrets/snowflake_key.p8
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+        run: dbt test --project-dir nyc_taxi_dbt --profiles-dir nyc_taxi_dbt

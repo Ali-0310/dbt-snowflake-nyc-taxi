@@ -37,6 +37,8 @@ filtered as (
         and passenger_count between 1 and 6
         and dropoff_datetime > pickup_datetime
         and DATEDIFF(minute, pickup_datetime, dropoff_datetime) between 1 and 180
+        and pickup_datetime >= '2024-01-01'
+        and pickup_datetime <= CURRENT_TIMESTAMP
 ),
 
 enriched as (
