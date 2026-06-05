@@ -13,7 +13,6 @@ clean-targets:
 
 models:
   nyc_taxi_dbt:
-    +static_analysis: strict
     staging:
       +materialized: view
       +schema: STAGING

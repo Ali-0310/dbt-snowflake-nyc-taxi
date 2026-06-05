@@ -1,0 +1,54 @@
+version: 2
+
+sources:
+  - name: raw
+    database: NYC_TAXI_DB
+    schema: RAW
+    description: "Données brutes NYC Taxi chargées depuis les fichiers Parquet mensuels."
+
+    tables:
+      - name: yellow_taxi_trips
+        description: "Trajets yellow taxi 2025 (jan–juin), ~24M lignes."
+        columns:
+          - name: VendorID
+            description: "Fournisseur TPEP (1=CMT, 2=Curb, 6=Myle, 7=Helix)"
+          - name: tpep_pickup_datetime
+            description: "Microsecondes depuis epoch Unix — à convertir avec TO_TIMESTAMP_NTZ(val/1000000)"
+          - name: tpep_dropoff_datetime
+            description: "Microsecondes depuis epoch Unix — à convertir avec TO_TIMESTAMP_NTZ(val/1000000)"
+          - name: passenger_count
+            description: "Nombre de passagers"
+          - name: trip_distance
+            description: "Distance en miles"
+          - name: RatecodeID
+            description: "Code tarifaire (1=Standard, 2=JFK, 3=Newark...)"
+          - name: store_and_fwd_flag
+            description: "Y=trajet stocké en mémoire avant envoi, N=envoi direct"
+          - name: PULocationID
+            description: "Zone TLC de prise en charge"
+          - name: DOLocationID
+            description: "Zone TLC de dépose"
+          - name: payment_type
+            description: "Mode de paiement (1=CB, 2=Cash, 3=Gratuit...)"
+          - name: fare_amount
+            description: "Montant du tarif calculé par le compteur"
+          - name: extra
+            description: "Suppléments divers"
+          - name: mta_tax
+            description: "Taxe MTA automatique"
+          - name: tip_amount
+            description: "Pourboire (CB uniquement, cash non inclus)"
+          - name: tolls_amount
+            description: "Total des péages"
+          - name: improvement_surcharge
+            description: "Supplément amélioration (depuis 2015)"
+          - name: total_amount
+            description: "Montant total facturé (hors pourboire cash)"
+          - name: congestion_surcharge
+            description: "Supplément congestion NYS"
+          - name: Airport_fee
+            description: "Supplément aéroport (LGA et JFK uniquement)"
+          - name: cbd_congestion_fee
+            description: "Taxe congestion MTA zone centrale (depuis jan. 2025)"
+          - name: _loaded_at
+            description: "Horodatage du chargement en RAW"
